@@ -252,109 +252,114 @@ function alg_cache(alg::QNDF2,u,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUni
   QNDF2Cache(uprev2,uprev3,fsalfirst,D,D2,R,U,atmp,utilde,nlsolver,dtₙ₋₁,dtₙ₋₂)
 end
 
-@cache mutable struct QNDFConstantCache{N,coefType1,coefType2,coefType3,uType,dtType,dtsType,EEstType,gammaType} <: OrdinaryDiffEqConstantCache
+@cache mutable struct QNDFConstantCache{MO,N,coefType,UType,dtType,EEstType,gammaType} <: OrdinaryDiffEqConstantCache
   nlsolver::N
-  D::coefType3
-  D2::coefType2
-  R::coefType1
-  U::coefType1
+  U::UType
+  D::coefType
+  prevD::coefType
+  prevorder::Int
   order::Int
-  max_order::Int
-  udiff::uType
-  dts::dtsType
-  h::dtType
-  nconsteps::Int
+  max_order::Val{MO}
+  dtprev::dtType
+  nconsteps::Int ##Successful Consecutive Step with the same step size
   consfailcnt::Int #Consecutive failed steps count
   EEst1::EEstType #Error Estimator for k-1 order
   EEst2::EEstType #Error Estimator for k+1 order
   γₖ::gammaType
-  tmp::coefType1
 end
 
-@cache mutable struct QNDFCache{uType,rateType,coefType,coefType1,coefType2,coefType3,dtType,dtsType,uNoUnitsType,N,EEstType,gammaType} <: OrdinaryDiffEqMutableCache
+function alg_cache(alg::QNDF{MO},u,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,uprev,uprev2,f,t,dt,reltol,p,calck,::Val{false}) where MO
+  max_order = MO
+  γ, c = one(eltype(alg.kappa)), 1
+  nlsolver = build_nlsolver(alg,u,uprev,p,t,dt,f,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,γ,c,Val(false))
+  dtprev = one(dt)
+  D = Matrix{uEltypeNoUnits}(undef, length(u), max_order+2)
+  fill!(D, zero(uEltypeNoUnits))
+  prevD = similar(D)
+  fill!(prevD, zero(uEltypeNoUnits))
+  EEst1 = tTypeNoUnits(1)
+  EEst2 = tTypeNoUnits(1)
+
+  U = zero(MMatrix{max_order,max_order,tTypeNoUnits})
+  for r = 1:max_order
+    U[1,r] = -r
+    for j = 2:max_order
+      U[j,r] = U[j-1,r] * ((j-1) - r)/j
+    end
+  end
+  U = SArray(U)
+
+  γₖ = SVector(ntuple(k->sum(tTypeNoUnits(1//j) for j in 1:k), Val(max_order)))
+
+  QNDFConstantCache(nlsolver, U, D, prevD, 1, 1, Val(max_order), dtprev, 0, 0, EEst1, EEst2, γₖ)
+end
+
+@cache mutable struct QNDFCache{MO,UType,RUType,rateType,N,coefType,dtType,EEstType,gammaType,uType,uNoUnitsType} <: OrdinaryDiffEqMutableCache
   fsalfirst::rateType
-  D::coefType3
-  D2::coefType2
-  R::coefType1
-  U::coefType1
-  order::Int
-  max_order::Int
-  udiff::coefType
-  dts::dtsType
-  atmp::uNoUnitsType
+  dd::uType
   utilde::uType
+  utildem1::uType
+  utildep1::uType
+  ϕ::uType
+  u₀::uType
   nlsolver::N
-  h::dtType
-  nconsteps::Int
-  consfailcnt::Int #consecutive failed steps count
+  U::UType
+  RU::RUType
+  D::coefType
+  Dtmp::coefType
+  tmp2::uType
+  prevD::coefType
+  order::Int
+  prevorder::Int
+  max_order::Val{MO}
+  dtprev::dtType
+  nconsteps::Int ##Successful consecutive step with the same step size
+  consfailcnt::Int #Consecutive failed steps count
   EEst1::EEstType #Error Estimator for k-1 order
   EEst2::EEstType #Error Estimator for k+1 order
   γₖ::gammaType
-  tmp::coefType1
+  atmp::uNoUnitsType
+  atmpm1::uNoUnitsType
+  atmpp1::uNoUnitsType
 end
 
-function alg_cache(alg::QNDF,u,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,uprev,uprev2,f,t,dt,reltol,p,calck,::Val{false})
-  γ, c = one(eltype(alg.kappa)), 1
-  nlsolver = build_nlsolver(alg,u,uprev,p,t,dt,f,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,γ,c,Val(false))
-
-  udiff = fill(zero(u), 1, 6)
-  dts = fill(zero(dt), 1, 6)
-  h = zero(dt)
-
-  D = fill(zero(u), 1, 5)
-  D2 = fill(zero(u), 6, 6)
-  R = fill(zero(t), 5, 5)
-  U = fill(zero(t), 5, 5)
-
-  tmp = similar(R)
-
-  EEst1 = tTypeNoUnits(1)
-  EEst2 = tTypeNoUnits(1)
-
-  max_order = 5
-  nconsteps = 1
-
-  γₖ = [sum(tTypeNoUnits(inv(j)) for j in 1:k) for k in 1:6]
-
-  QNDFConstantCache(nlsolver,D,D2,R,U,1,max_order,udiff,dts,h,1,0, EEst1, EEst2, γₖ, tmp)
-end
-
-function alg_cache(alg::QNDF,u,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,uprev,uprev2,f,t,dt,reltol,p,calck,::Val{true})
+function alg_cache(alg::QNDF{MO},u,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,uprev,uprev2,f,t,dt,reltol,p,calck,::Val{true}) where MO
+  max_order = MO
   γ, c = one(eltype(alg.kappa)), 1
   nlsolver = build_nlsolver(alg,u,uprev,p,t,dt,f,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,γ,c,Val(true))
   fsalfirst = zero(rate_prototype)
-
-  udiff = Array{typeof(u)}(undef, 1, 6)
-  dts = fill(zero(dt), 1, 6)
-  h = zero(dt)
-
-  D = Array{typeof(u)}(undef, 1, 5)
-  D2 = Array{typeof(u)}(undef, 6, 6)
-  R = fill(zero(t), 5, 5)
-  U = fill(zero(t), 5, 5)
-
-  tmp = similar(R)
-
-  for i = 1:5
-    D[i] = zero(u)
-    udiff[i] = zero(u)
-  end
-  udiff[6] = zero(u)
-
-  for i = 1:6, j = 1:6
-      D2[i,j] = zero(u)
-  end
-
-  max_order = 5
-  atmp = similar(u,uEltypeNoUnits)
+  dd = zero(u)
   utilde = zero(u)
-
+  utildem1 = zero(u)
+  utildep1 = zero(u)
+  ϕ = zero(u)
+  u₀ = zero(u)
+  dtprev = one(dt)
+  D = similar(u, uEltypeNoUnits, length(u), max_order + 2)
+  fill!(D, zero(uEltypeNoUnits))
+  Dtmp = similar(D)
+  fill!(Dtmp, zero(uEltypeNoUnits))
+  prevD = zero(similar(D))
+  atmp = zero(similar(u, uEltypeNoUnits))
+  atmpm1 = zero(similar(u, uEltypeNoUnits))
+  atmpp1 = zero(similar(u, uEltypeNoUnits))
+  tmp2 = zero(u)
   EEst1 = tTypeNoUnits(1)
   EEst2 = tTypeNoUnits(1)
 
-  γₖ = [sum(tTypeNoUnits(inv(j)) for j in 1:k) for k in 1:6]
+  U = zero(MMatrix{max_order,max_order,tTypeNoUnits})
+  for r = 1:max_order
+    U[1,r] = -r
+    for j = 2:max_order
+      U[j,r] = U[j-1,r] * ((j-1) - r)/j
+    end
+  end
+  U = SArray(U)
 
-  QNDFCache(fsalfirst,D,D2,R,U,1,max_order,udiff,dts,atmp,utilde,nlsolver,h,1,0, EEst1, EEst2, γₖ, tmp)
+  RU = Matrix(U)
+  γₖ = SVector(ntuple(k->sum(tTypeNoUnits(1//j) for j in 1:k), Val(max_order)))
+
+  QNDFCache(fsalfirst, dd, utilde, utildem1, utildep1, ϕ, u₀, nlsolver, U, RU, D, Dtmp, tmp2, prevD, 1, 1, Val(max_order), dtprev, 0, 0, EEst1, EEst2, γₖ, atmp, atmpm1, atmpp1)
 end
 
 
@@ -391,4 +396,128 @@ function alg_cache(alg::MEBDF2,u,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUn
   γ, c = 1, 1
   nlsolver = build_nlsolver(alg,u,uprev,p,t,dt,f,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,γ,c,Val(false))
   MEBDF2ConstantCache(nlsolver)
+end
+
+@cache mutable struct FBDFConstantCache{MO,N,tsType,tType,uType,uuType,coeffType,EEstType,rType,wType} <: OrdinaryDiffEqConstantCache
+  nlsolver::N
+  ts::tsType
+  ts_tmp::tsType
+  t_old::tType
+  u_history::uuType
+  order::Int
+  prev_order::Int
+  u_corrector::uType
+  bdf_coeffs::coeffType
+  max_order::Val{MO}
+  nconsteps::Int
+  consfailcnt::Int
+  terkm2::EEstType
+  terkm1::EEstType
+  terk::EEstType
+  terkp1::EEstType
+  r::rType
+  weights::wType
+  nonevesuccsteps::Int
+end
+
+function alg_cache(alg::FBDF{MO},u,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,uprev,uprev2,f,t,dt,reltol,p,calck,::Val{false}) where MO
+  γ, c = 1.0, 1.0
+  max_order = MO
+  nlsolver = build_nlsolver(alg,u,uprev,p,t,dt,f,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,γ,c,Val(false))
+  bdf_coeffs = SA[1 -1 0 0 0 0 ;
+                  3//2 -2 1//2 0 0 0 ;
+                  11//6 -3 3//2 -1//3  0 0 ;
+                  25//12 -4 3 -4//3 1//4 0 ;
+                  137//60 -5 5 -10//3 5//4 -1//5]
+  ts = zero(Vector{typeof(t)}(undef,max_order+2)) #ts is the successful past points, it will be updated after successful step
+  ts_tmp = similar(ts)
+
+  u_history = zero(Matrix{eltype(u)}(undef,length(u),max_order+2))
+  order = 1
+  prev_order = 1
+  u_corrector = similar(u_history)
+  fill!(u_corrector,zero(eltype(u)))
+  fill!(u_history,zero(eltype(u_history)))
+  terkm2 = tTypeNoUnits(1)
+  terkm1= tTypeNoUnits(1)
+  terk= tTypeNoUnits(1)
+  terkp1 = tTypeNoUnits(1)
+  r = zero(Vector{typeof(t)}(undef,max_order+2)) 
+  weights = zero(Vector{typeof(t)}(undef,max_order+2))
+  weights[1] = 1
+  nconsteps = 0
+  consfailcnt = 0
+  t_old = zero(t)
+  nonevesuccsteps = 0
+  
+  FBDFConstantCache(nlsolver,ts,ts_tmp,t_old,u_history,order,prev_order,u_corrector,bdf_coeffs,Val(5),nconsteps,consfailcnt,terkm2,terkm1,terk,terkp1,r,weights,nonevesuccsteps)
+end
+
+@cache mutable struct FBDFCache{MO,N,rateType,uNoUnitsType,tsType,tType,uType,uuType,coeffType,EEstType,rType,wType} <: OrdinaryDiffEqMutableCache
+  fsalfirst::rateType
+  nlsolver::N
+  ts::tsType
+  ts_tmp::tsType
+  t_old::tType
+  u_history::uuType
+  order::Int
+  prev_order::Int
+  u_corrector::uuType
+  u₀::uType
+  bdf_coeffs::coeffType
+  max_order::Val{MO}
+  nconsteps::Int
+  consfailcnt::Int
+  tmp::uType
+  atmp::uNoUnitsType
+  terkm2::EEstType
+  terkm1::EEstType
+  terk::EEstType
+  terkp1::EEstType
+  terk_tmp::uType
+  terkp1_tmp::uType
+  r::rType
+  weights::wType
+  equi_ts::tsType
+  nonevesuccsteps::Int
+end
+
+function alg_cache(alg::FBDF{MO},u,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,uprev,uprev2,f,t,dt,reltol,p,calck,::Val{true}) where MO
+  γ, c = 1.0, 1.0
+  fsalfirst = zero(rate_prototype)
+  max_order = MO
+  nlsolver = build_nlsolver(alg,u,uprev,p,t,dt,f,rate_prototype,uEltypeNoUnits,uBottomEltypeNoUnits,tTypeNoUnits,γ,c,Val(true))
+  bdf_coeffs = SA[1 -1 0 0 0 0 ;
+                  3//2 -2 1//2 0 0 0 ;
+                  11//6 -3 3//2 -1//3  0 0 ;
+                  25//12 -4 3 -4//3 1//4 0 ;
+                  137//60 -5 5 -10//3 5//4 -1//5]
+  ts = zero(Vector{typeof(t)}(undef,max_order+2)) #ts is the successful past points, it will be updated after successful step
+  u_history = zero(Matrix{eltype(u)}(undef,length(u),max_order+2))
+  order = 1
+  prev_order = 1
+  u_corrector = similar(u_history)
+  fill!(u_corrector,zero(eltype(u)))
+  fill!(u_history,zero(eltype(u_history)))
+  terkm2 = tTypeNoUnits(1)
+  terkm1= tTypeNoUnits(1)
+  terk= tTypeNoUnits(1)
+  terkp1 = tTypeNoUnits(1)
+  terk_tmp = similar(u)
+  terkp1_tmp = similar(u)
+  r = zero(Vector{typeof(t)}(undef,max_order+2)) 
+  weights = zero(Vector{typeof(t)}(undef,max_order+2))
+  weights[1] = 1
+  nconsteps = 0
+  consfailcnt = 0
+  t_old = zero(t)
+  atmp = similar(u, uEltypeNoUnits)
+  fill!(atmp,zero(uEltypeNoUnits))
+  u₀ = similar(u)
+  equi_ts = similar(ts)
+  tmp = similar(u)
+  ts_tmp = similar(ts)
+  nonevesuccsteps = 0
+
+  FBDFCache(fsalfirst,nlsolver,ts,ts_tmp,t_old,u_history,order,prev_order,u_corrector,u₀,bdf_coeffs,Val(5),nconsteps,consfailcnt,tmp,atmp,terkm2,terkm1,terk,terkp1,terk_tmp,terkp1_tmp,r,weights,equi_ts,nonevesuccsteps)
 end

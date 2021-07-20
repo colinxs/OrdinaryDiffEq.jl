@@ -35,7 +35,7 @@ using DocStringExtensions
   using NLsolve
   # Required by temporary fix in not in-place methods with 12+ broadcasts
   # `MVector` is used by Nordsieck forms
-  import StaticArrays: SArray, MVector, SVector, @SVector, StaticArray
+  import StaticArrays: SArray, MVector, SVector, @SVector, StaticArray, MMatrix, SA
 
   # Integrator Interface
   import DiffEqBase: resize!,deleteat!,addat!,full_cache,user_cache,u_cache,du_cache,
@@ -59,6 +59,7 @@ using DocStringExtensions
                           forwarddiff_color_jacobian, ForwardColorJacCache,
                           default_chunk_size, getsize
 
+  import Polyester
   using MacroTools, Adapt
 
   const CompiledFloats = Union{Float32,Float64,
@@ -197,6 +198,7 @@ using DocStringExtensions
          ParsaniKetchesonDeconinck3S53, ParsaniKetchesonDeconinck3S173,
          ParsaniKetchesonDeconinck3S94, ParsaniKetchesonDeconinck3S184,
          ParsaniKetchesonDeconinck3S105, ParsaniKetchesonDeconinck3S205,
+         RDPK3Sp35, RDPK3SpFSAL35, RDPK3Sp49, RDPK3SpFSAL49, RDPK3Sp510, RDPK3SpFSAL510,
          KYK2014DGSSPRK_3S2
 
   export RadauIIA3, RadauIIA5
@@ -237,7 +239,7 @@ using DocStringExtensions
 
   export AN5, JVODE, JVODE_Adams, JVODE_BDF
 
-  export ABDF2, QNDF1, QBDF1, QNDF2, QBDF2, QNDF, QBDF
+  export ABDF2, QNDF1, QBDF1, QNDF2, QBDF2, QNDF, QBDF, FBDF
 
   export SBDF2, SBDF3, SBDF4
 
@@ -252,4 +254,6 @@ using DocStringExtensions
   export KuttaPRK2p5, PDIRK44, DImplicitEuler, DABDF2
 
   export ShampineCollocationInit, BrownFullBasicInit, NoInit
+
+  export IController, PIController, PIDController
 end # module

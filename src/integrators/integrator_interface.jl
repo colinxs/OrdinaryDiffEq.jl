@@ -118,7 +118,9 @@ function resize!(integrator::ODEIntegrator, i::Int)
   @unpack cache = integrator
 
   for c in full_cache(cache)
-    resize!(c,i)
+    # Skip nothings which may exist in the cache since extra variables
+    # may be required for things like units
+    c !== nothing && resize!(c,i)
   end
   resize_nlsolver!(integrator, i)
   resize_J_W!(cache, integrator, i)
@@ -146,12 +148,15 @@ function resize_J_W!(cache, integrator, i)
     nf = nlsolve_f(f, integrator.alg)
     islin = f isa Union{ODEFunction,SplitFunction} && islinear(nf.f)
     if !islin
-      J = similar(f.jac_prototype, i, i)
-      if !isa(J, DiffEqBase.AbstractDiffEqLinearOperator)
+      if isa(cache.J, DiffEqBase.AbstractDiffEqLinearOperator)
+        resize!(cache.J,i)
+      else
+        J = similar(f.jac_prototype, i, i)
         J = DiffEqArrayOperator(J; update_func=f.jac)
       end
-
-      cache.W = WOperator(f.mass_matrix, integrator.dt, J, true)
+      cache.W = WOperator{DiffEqBase.isinplace(integrator.sol.prob)}(
+                          f.mass_matrix, integrator.dt, cache.J, integrator.u;
+                          transform = cache.W.transform)
       cache.J = cache.W.J
     end
   else
@@ -301,6 +306,7 @@ function DiffEqBase.reinit!(integrator::ODEIntegrator,u0 = integrator.sol.prob.u
   integrator.u_modified = false
 
   # full re-initialize the PI in timestepping
+  reinit!(integrator, integrator.opts.controller)
   integrator.qold = integrator.opts.qoldinit
   integrator.q11 = typeof(integrator.q11)(1)
   integrator.erracc = typeof(integrator.erracc)(1)

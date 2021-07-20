@@ -1,4 +1,4 @@
-mutable struct DEOptions{absType,relType,QT,tType,F1,F2,F3,F4,F5,F6,F7,tstopsType,discType,ECType,SType,MI,tcache,savecache,disccache}
+mutable struct DEOptions{absType,relType,QT,tType,Controller,F1,F2,F3,F4,F5,F6,F7,tstopsType,discType,ECType,SType,MI,tcache,savecache,disccache}
   maxiters::MI
   save_everystep::Bool
   adaptive::Bool
@@ -9,9 +9,11 @@ mutable struct DEOptions{absType,relType,QT,tType,F1,F2,F3,F4,F5,F6,F7,tstopsTyp
   qmin::QT
   qsteady_max::QT
   qsteady_min::QT
+  qoldinit::QT
   failfactor::QT
   dtmax::tType
   dtmin::tType
+  controller::Controller
   internalnorm::F1
   internalopnorm::F2
   save_idxs::SType
@@ -28,9 +30,6 @@ mutable struct DEOptions{absType,relType,QT,tType,F1,F2,F3,F4,F5,F6,F7,tstopsTyp
   progress_message::F6
   timeseries_errors::Bool
   dense_errors::Bool
-  beta1::QT
-  beta2::QT
-  qoldinit::QT
   dense::Bool
   save_on::Bool
   save_start::Bool
@@ -49,11 +48,12 @@ end
 """
     ODEIntegrator
 Fundamental `struct` allowing interactively stepping through the numerical solving of a differential equation.
-The full documentation is hosted here: [http://docs.juliadiffeq.org/dev/basics/integrator.html](http://docs.juliadiffeq.org/dev/basics/integrator.html). This docstring
-describes basic functionality only!
+The full documentation is hosted here:
+[https://diffeq.sciml.ai/latest/basics/integrator/](https://diffeq.sciml.ai/latest/basics/integrator/).
+This docstring describes basic functionality only!
 
 Initialize using `integrator = init(prob::ODEProblem, alg; kwargs...)`. The keyword args which are accepted are the same
-[Common Solver Options](http://docs.juliadiffeq.org/dev/basics/common_solver_opts.html#Common-Solver-Options-1)
+[common solver options](https://diffeq.sciml.ai/latest/basics/common_solver_opts/)
 used by `solve`.
 
 
@@ -75,7 +75,7 @@ integrator.opts.abstol = 1e-9
 ```
 For more info see the linked documentation page.
 """
-mutable struct ODEIntegrator{algType<:Union{OrdinaryDiffEqAlgorithm,DAEAlgorithm},IIP,uType,duType,tType,pType,eigenType,QT,tdirType,ksEltype,SolType,F,CacheType,O,FSALType,EventErrorType,CallbackCacheType,IA} <: DiffEqBase.AbstractODEIntegrator{algType,IIP,uType,tType}
+mutable struct ODEIntegrator{algType<:Union{OrdinaryDiffEqAlgorithm,DAEAlgorithm},IIP,uType,duType,tType,pType,eigenType,EEstT,QT,tdirType,ksEltype,SolType,F,CacheType,O,FSALType,EventErrorType,CallbackCacheType,IA} <: DiffEqBase.AbstractODEIntegrator{algType,IIP,uType,tType}
   sol::SolType
   u::uType
   du::duType
@@ -94,7 +94,7 @@ mutable struct ODEIntegrator{algType<:Union{OrdinaryDiffEqAlgorithm,DAEAlgorithm
   dtpropose::tType
   tdir::tdirType
   eigen_est::eigenType
-  EEst::QT
+  EEst::EEstT
   qold::QT
   q11::QT
   erracc::QT
@@ -125,7 +125,7 @@ mutable struct ODEIntegrator{algType<:Union{OrdinaryDiffEqAlgorithm,DAEAlgorithm
   fsalfirst::FSALType
   fsallast::FSALType
 
-  function ODEIntegrator{algType,IIP,uType,duType,tType,pType,eigenType,tTypeNoUnits,tdirType,ksEltype,SolType,
+  function ODEIntegrator{algType,IIP,uType,duType,tType,pType,eigenType,EEstT,tTypeNoUnits,tdirType,ksEltype,SolType,
                 F,CacheType,O,FSALType,EventErrorType,CallbackCacheType,InitializeAlgType}(
                 sol,u,du,k,t,dt,f,p,uprev,uprev2,duprev,tprev,
       alg,dtcache,dtchangeable,dtpropose,tdir,
@@ -136,12 +136,12 @@ mutable struct ODEIntegrator{algType<:Union{OrdinaryDiffEqAlgorithm,DAEAlgorithm
       event_last_time,vector_event_last_time,last_event_error,
       accept_step,isout,reeval_fsal,u_modified,reinitialize,isdae,
       opts,destats,initializealg) where {algType,IIP,uType,duType,tType,pType,
-                                         eigenType,tTypeNoUnits,tdirType,
+                                         eigenType,EEstT,tTypeNoUnits,tdirType,
                                          ksEltype,SolType,F,CacheType,O,
                                          FSALType,EventErrorType,
                                          CallbackCacheType,InitializeAlgType}
 
-      new{algType,IIP,uType,duType,tType,pType,eigenType,tTypeNoUnits,tdirType,ksEltype,SolType,
+      new{algType,IIP,uType,duType,tType,pType,eigenType,EEstT,tTypeNoUnits,tdirType,ksEltype,SolType,
                   F,CacheType,O,FSALType,EventErrorType,CallbackCacheType,InitializeAlgType}(
                   sol,u,du,k,t,dt,f,p,uprev,uprev2,duprev,tprev,
       alg,dtcache,dtchangeable,dtpropose,tdir,

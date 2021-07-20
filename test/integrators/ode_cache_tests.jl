@@ -1,5 +1,5 @@
 using OrdinaryDiffEq, DiffEqBase, DiffEqCallbacks, Test
-using Random
+using Random, DiffEqOperators
 using ElasticArrays
 Random.seed!(213)
 CACHE_TEST_ALGS = [Euler(),Midpoint(),RK4(),SSPRK22(),SSPRK33(),SSPRK43(),SSPRK104(),
@@ -9,8 +9,9 @@ CACHE_TEST_ALGS = [Euler(),Midpoint(),RK4(),SSPRK22(),SSPRK33(),SSPRK43(),SSPRK1
   ParsaniKetchesonDeconinck3S32(),
   BS3(),BS5(),DP5(),DP8(),Feagin10(),Feagin12(),Feagin14(),TanYam7(),
   Tsit5(),TsitPap8(),Vern6(),Vern7(),Vern8(),Vern9(),OwrenZen3(),OwrenZen4(),OwrenZen5(),
-  AutoTsit5(Rosenbrock23())]
-broken_CACHE_TEST_ALGS = [KenCarp4()]
+  AutoTsit5(Rosenbrock23()),TRBDF2(),KenCarp4(),ABDF2()]
+broken_CACHE_TEST_ALGS = [QNDF(),ExtrapolationMidpointHairerWanner(),ImplicitEulerExtrapolation(),ImplicitDeuflhardExtrapolation()]
+# AitkenNeville(threading=false) fails Elastic but not normal case
 
 using InteractiveUtils
 
@@ -48,14 +49,19 @@ for i in 1:10
 end
 
 println("Check some other integrators")
-sol = solve(prob,Rosenbrock23(chunk_size=1),callback=callback,dt=1/2)
+sol = solve(prob,Rosenbrock23(),callback=callback,dt=1/2)
 @test length(sol[end]) > 1
-sol = solve(prob,Rosenbrock32(chunk_size=1),callback=callback,dt=1/2)
+sol = solve(prob,Rosenbrock32(),callback=callback,dt=1/2)
 @test length(sol[end]) > 1
-@test_broken sol = solve(prob,KenCarp4(chunk_size=1),callback=callback,dt=1/2)
+sol = solve(prob,KenCarp4(),callback=callback,dt=1/2)
 @test length(sol[end]) > 1
-@test_broken sol = solve(prob,TRBDF2(chunk_size=1),callback=callback,dt=1/2)
+sol = solve(prob,TRBDF2(),callback=callback,dt=1/2)
 @test length(sol[end]) > 1
+
+Jv = JacVecOperator(f,u0,nothing,0.0)
+ff2 = ODEFunction(f;jac_prototype=Jv)
+prob2 = ODEProblem(ff2,u0,tspan)
+sol = solve(prob2,TRBDF2(linsolve=LinSolveGMRES()),callback=callback)
 
 for alg in CACHE_TEST_ALGS
   @show alg
